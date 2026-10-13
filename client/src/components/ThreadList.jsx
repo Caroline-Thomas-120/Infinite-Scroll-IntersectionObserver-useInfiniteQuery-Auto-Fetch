@@ -1,15 +1,9 @@
+import { useRef, useCallback } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useIntersection } from "../hooks/useIntersection";
 import { getThreads } from "../services/threads.service";
 import ThreadItem from "./ThreadItem.jsx";
 
-// Cursor pagination is already wired with useInfiniteQuery and a "Load More" button.
-//
-// YOUR TASK: replace the manual "Load More" button with automatic infinite scroll.
-//   1. Write a useIntersection(ref, onIntersect) hook (see src/hooks/useIntersection.js).
-//   2. Create a sentinelRef with useRef and render <div ref={sentinelRef} /> after the list.
-//   3. Build a guarded onIntersect: only fetchNextPage() when hasNextPage && !isFetchingNextPage.
-//   4. Call useIntersection(sentinelRef, onIntersect).
-//   5. Remove the "Load More" button; keep a "Loading more…" indicator driven by isFetchingNextPage.
 export default function ThreadList() {
   const {
     data,
@@ -18,34 +12,53 @@ export default function ThreadList() {
     isFetchingNextPage,
     isPending,
     isError,
-    error,
   } = useInfiniteQuery({
     queryKey: ["threads"],
-    queryFn: ({ pageParam }) => getThreads({ cursor: pageParam, take: 10 }),
+    queryFn: ({ pageParam }) =>
+      getThreads({ cursor: pageParam, take: 10 }),
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.nextCursor ?? undefined,
   });
 
-  if (isPending) return <p className="muted">Loading threads…</p>;
-  if (isError) return <p className="error">Could not load threads: {error.message}</p>;
+  // Create a ref for the sentinel
+  const sentinelRef = useRef(null);
 
+  // Fetch the next page only when safe
+  const onIntersect = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Observe the sentinel
+  useIntersection(sentinelRef, onIntersect);
+
+  if (isPending) {
+    return <p>Loading…</p>;
+  }
+
+  if (isError) {
+    return <p>Could not load threads.</p>;
+  }
+
+  // Combine all fetched pages into one array
   const threads = data.pages.flatMap((page) => page.threads);
 
   return (
     <div>
-      <ul className="threads">
+      <ul>
         {threads.map((thread) => (
           <ThreadItem key={thread.id} thread={thread} />
         ))}
       </ul>
 
-      {/* TODO: replace this button with a sentinel div + useIntersection */}
-      {hasNextPage && (
-        <div className="load-more">
-          <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
-            {isFetchingNextPage ? "Loading more…" : "Load More"}
-          </button>
-        </div>
+      {/* Invisible sentinel replaces the Load More button */}
+      <div ref={sentinelRef} />
+
+      {/* Show loading message while fetching the next page */}
+      {isFetchingNextPage && (
+        <p className="loading-more">Loading more…</p>
       )}
     </div>
   );
